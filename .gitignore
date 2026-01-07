@@ -1,0 +1,59 @@
+# Python 가상환경
+venv/
+env/
+ENV/
+.venv/
+
+# Python 캐시
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 데이터베이스
+*.db
+*.sqlite
+*.sqlite3
+archive.db
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# 환경 변수
+.env
+.env.local
+
+# IDE 설정
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS 관련
+.DS_Store
+Thumbs.db
+
+# AI 모델 캐시
+.cache/
+models/
+*.pt
+*.pth
+*.ckpt
+
+# 업로드된 이미지/문서
+uploads/
+temp/
+*.png
+*.jpg
+*.jpeg
+!test-image.png
+
+# 로그
+*.log
+logs/
+
+# 빌드 관련
+build/
+dist/
+*.egg-info/
