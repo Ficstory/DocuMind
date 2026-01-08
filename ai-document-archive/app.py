@@ -477,12 +477,10 @@ def process_document(uploaded_file, models, use_preprocessing=False):
     metadata_extractor = PhotoMetadataExtractor()
     photo_metadata = metadata_extractor.extract_metadata(uploaded_file)
 
-    # 1. 이미지 전처리 (선택적)
+    # 1. 이미지 전처리
     preprocessing_results = None
-    if use_preprocessing and not photo_metadata['is_photo']:
-        # 문서 이미지인 경우에만 전처리 적용
+    if use_preprocessing:
         preprocessing_results = preprocess_image_for_ocr(image, enable_deskew=True)
-        # 전처리된 이미지를 PIL Image로 변환
         processed_image = preprocess_for_display(preprocessing_results['final'])
     else:
         processed_image = image
@@ -639,8 +637,17 @@ with tab1:
     
     # 처리 완료된 결과 표시
     if uploaded_file is not None and st.session_state.doc_results is not None:
+        
         results = st.session_state.doc_results
 
+        st.write("DEBUG use_preprocessing checkbox:", use_preprocessing)
+        st.write("DEBUG is_photo:", results.get("photo_metadata", {}).get("is_photo"))
+        st.write("DEBUG preprocessing_results is None?:", results.get("preprocessing_results") is None)
+
+    # dict면 키도 확인
+        if results.get("preprocessing_results"):
+            st.write("DEBUG preproc keys:", list(results["preprocessing_results"].keys()))
+        
         col1, col2 = st.columns(2)
         with col1:
             st.image(uploaded_file, caption="업로드된 문서", use_container_width=True)
@@ -676,6 +683,22 @@ with tab1:
             if results.get('preprocessing_results'):
                 with st.expander("이미지 전처리 결과 보기"):
                     preproc = results['preprocessing_results']
+                    st.write("### ✅ 전처리 전/후 비교")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.image(
+                            preprocess_for_display(preproc['original']),
+                            caption="전처리 전(원본)",
+                            use_container_width=True
+                        )
+                    with c2:
+                        st.image(
+                            preprocess_for_display(preproc['final']),
+                            caption="전처리 후(최종)",
+                            use_container_width=True
+                        )
+
+                    # (기존) 단계별 보기
                     st.write("### 전처리 단계")
 
                     # 전처리 단계별 이미지
