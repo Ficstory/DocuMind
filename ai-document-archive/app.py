@@ -55,9 +55,8 @@ def load_models():
     layout_model = LayoutLMv3ForTokenClassification.from_pretrained("microsoft/layoutlmv3-base")
     
     # 텍스트 요약
-    summarizer_tokenizer = AutoTokenizer.from_pretrained("gangyeolkim/kobart-korean-summarizer-v2")
-    summarizer_model = AutoModelForSeq2SeqLM.from_pretrained("gangyeolkim/kobart-korean-summarizer-v2")
-    
+    summarizer_tokenizer = AutoTokenizer.from_pretrained("gogamza/kobart-summarization")
+    summarizer_model = AutoModelForSeq2SeqLM.from_pretrained("gogamza/kobart-summarization")
     # 임베딩 모델 (벡터 검색용)
     embedding_model = SentenceTransformer("jhgan/ko-sroberta-multitask")
     
