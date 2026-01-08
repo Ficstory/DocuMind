@@ -18,6 +18,11 @@ import json
 import re
 from sklearn.metrics.pairwise import cosine_similarity
 
+# 새로 추가된 모듈
+from photo_metadata_extractor import PhotoMetadataExtractor
+from keyword_extractor import KoreanKeywordExtractor
+from image_preprocessing import preprocess_image_for_ocr, preprocess_for_display
+
 # 데이터베이스 모델
 class Document(SQLModel, table=True):
     __table_args__ = {'extend_existing': True}
@@ -428,34 +433,66 @@ def create_embedding(text, model):
     embedding = model.encode(text)
     return embedding.tolist()
 
-# 키워드 추출
+# 키워드 추출 (형태소 분석 기반)
 def extract_keywords(text, structured_data=None):
-    stopwords = ['은', '는', '이', '가', '을', '를', '의', '에', '와', '과', '에서', '으로']
-    words = text.split()
-    keywords = [w for w in words if len(w) > 1 and w not in stopwords]
-    
-    # 구조화된 데이터에서 추가 키워드
-    if structured_data:
-        if 'store' in structured_data:
-            keywords.append(structured_data['store'])
-        if 'date' in structured_data:
-            keywords.append(structured_data['date'])
-    
-    return ", ".join(list(set(keywords)))
+    try:
+        # 한국어 형태소 분석 기반 키워드 추출
+        extractor = KoreanKeywordExtractor(analyzer='okt')
+        keywords = extractor.extract_keywords_with_morpheme_analysis(text, top_k=15)
+
+        # 구조화된 데이터에서 추가 키워드
+        if structured_data:
+            if 'store' in structured_data:
+                keywords.append(structured_data['store'])
+            if 'date' in structured_data:
+                keywords.append(structured_data['date'])
+            if '상호명' in structured_data:
+                keywords.append(structured_data['상호명'])
+
+        return ", ".join(list(set(keywords)))
+    except Exception as e:
+        # 폴백: 기존 방식 (Konlpy가 제대로 설치되지 않은 경우)
+        print(f"형태소 분석 실패, 기본 방식 사용: {e}")
+        stopwords = ['은', '는', '이', '가', '을', '를', '의', '에', '와', '과', '에서', '으로']
+        words = text.split()
+        keywords = [w for w in words if len(w) > 1 and w not in stopwords]
+
+        if structured_data:
+            if 'store' in structured_data:
+                keywords.append(structured_data['store'])
+            if 'date' in structured_data:
+                keywords.append(structured_data['date'])
+
+        return ", ".join(list(set(keywords)))
 
 # 문서 처리
-def process_document(uploaded_file, models):
-    (dit_processor, dit_model, ocr, donut_processor, donut_model, 
+def process_document(uploaded_file, models, use_preprocessing=False):
+    (dit_processor, dit_model, ocr, donut_processor, donut_model,
      layout_processor, layout_model, sum_tokenizer, sum_model,
      embedding_model) = models
-    
+
     image = Image.open(uploaded_file).convert("RGB")
-    
-    # 1. 문서 유형 분류
-    doc_type = classify_document(image, dit_processor, dit_model)
+
+    # 0. 사진 메타데이터 추출
+    metadata_extractor = PhotoMetadataExtractor()
+    photo_metadata = metadata_extractor.extract_metadata(uploaded_file)
+
+    # 1. 이미지 전처리 (선택적)
+    preprocessing_results = None
+    if use_preprocessing and not photo_metadata['is_photo']:
+        # 문서 이미지인 경우에만 전처리 적용
+        preprocessing_results = preprocess_image_for_ocr(image, enable_deskew=True)
+        # 전처리된 이미지를 PIL Image로 변환
+        processed_image = preprocess_for_display(preprocessing_results['final'])
+    else:
+        processed_image = image
+
+    # 2. 문서 유형 분류
+    doc_type = classify_document(processed_image, dit_processor, dit_model)
     print('\n==========')
     print(f'\n[doc_type]\n{doc_type}')
-    content, boxes = extract_text_with_layout(image, ocr)
+    print(f'\n[photo_metadata]\n{photo_metadata}')
+    content, boxes = extract_text_with_layout(processed_image, ocr)
     layoutlm_data = extract_structured_with_layoutlm(image, content, boxes, layout_processor, layout_model, doc_type)
     print('\n==========')
     print(f'\n[layoutlm_data]\n{layoutlm_data}')
@@ -499,13 +536,13 @@ def process_document(uploaded_file, models):
     
     # 5. 임베딩 생성
     embedding = create_embedding(content + " " + summary, embedding_model)
-    
+
     # 이미지 저장
     img_byte_arr = io.BytesIO()
     image.save(img_byte_arr, format='PNG')
     img_data = img_byte_arr.getvalue()
-    
-    return doc_type, content, summary, keywords, structured_data, img_data, embedding
+
+    return doc_type, content, summary, keywords, structured_data, img_data, embedding, photo_metadata, preprocessing_results
 
 # 벡터 유사도 검색
 def search_by_similarity(query, embedding_model, session):
@@ -572,16 +609,19 @@ if 'doc_results' not in st.session_state:
 with tab1:
     uploaded_file = st.file_uploader("문서를 업로드하세요", type=['png', 'jpg', 'jpeg'])
 
+    # 전처리 옵션 (문서 이미지인 경우)
+    use_preprocessing = st.checkbox("이미지 전처리 사용 (OCR 정확도 향상)", value=False)
+
     # 새 파일인지 확인
     if uploaded_file is not None and uploaded_file != st.session_state.processed_file:
         st.session_state.processed_file = uploaded_file
         st.session_state.processing_complete = False
-    
+
     # 처리되지 않은 파일만 처리
     if uploaded_file is not None and not st.session_state.processing_complete:
         with st.spinner("문서 처리 중..."):
-            doc_type, content, summary, keywords, structured_data, img_data, embedding = process_document(
-                uploaded_file, models
+            doc_type, content, summary, keywords, structured_data, img_data, embedding, photo_metadata, preprocessing_results = process_document(
+                uploaded_file, models, use_preprocessing=use_preprocessing
             )
             st.session_state.processing_complete = True
             # 결과를 세션에 저장
@@ -592,26 +632,68 @@ with tab1:
                 'keywords': keywords,
                 'structured_data': structured_data,
                 'img_data': img_data,
-                'embedding': embedding
+                'embedding': embedding,
+                'photo_metadata': photo_metadata,
+                'preprocessing_results': preprocessing_results
             }
     
     # 처리 완료된 결과 표시
     if uploaded_file is not None and st.session_state.doc_results is not None:
         results = st.session_state.doc_results
-        
+
         col1, col2 = st.columns(2)
         with col1:
             st.image(uploaded_file, caption="업로드된 문서", use_container_width=True)
-        
+
+            # 사진 메타데이터 표시
+            if results.get('photo_metadata'):
+                metadata = results['photo_metadata']
+                if metadata['is_photo']:
+                    st.write("### 📷 사진 메타데이터")
+                    metadata_extractor = PhotoMetadataExtractor()
+                    formatted = metadata_extractor.format_metadata_for_display(metadata)
+                    for key, value in formatted.items():
+                        st.write(f"- **{key}:** {value}")
+
+                    # GPS 정보가 있으면 지도 표시
+                    if metadata['has_gps'] and 'latitude' in metadata['gps_info'] and 'longitude' in metadata['gps_info']:
+                        st.write("### 🗺️ 촬영 위치")
+                        lat = metadata['gps_info']['latitude']
+                        lon = metadata['gps_info']['longitude']
+                        st.map(data={'lat': [lat], 'lon': [lon]})
+
         with col2:
             st.write(f"**문서 유형:** {results['doc_type']}")
             st.write(f"**요약:** {results['summary']}")
             st.write(f"**키워드:** {results['keywords']}")
-            
+
             if results['structured_data']:
                 st.write("**추출된 정보:**")
                 for key, value in results['structured_data'].items():
                     st.write(f"- {key}: {value}")
+
+            # 전처리 결과 표시
+            if results.get('preprocessing_results'):
+                with st.expander("이미지 전처리 결과 보기"):
+                    preproc = results['preprocessing_results']
+                    st.write("### 전처리 단계")
+
+                    # 전처리 단계별 이미지
+                    tabs = st.tabs(["원본", "그레이스케일", "노이즈 제거", "대비 개선", "이진화", "최종"])
+                    with tabs[0]:
+                        st.image(preprocess_for_display(preproc['original']), caption="원본", use_container_width=True)
+                    with tabs[1]:
+                        st.image(preprocess_for_display(preproc['grayscale']), caption="그레이스케일", use_container_width=True)
+                    with tabs[2]:
+                        st.image(preprocess_for_display(preproc['denoised']), caption="노이즈 제거", use_container_width=True)
+                    with tabs[3]:
+                        st.image(preprocess_for_display(preproc['enhanced']), caption="대비 개선", use_container_width=True)
+                    with tabs[4]:
+                        st.image(preprocess_for_display(preproc['binary']), caption="이진화", use_container_width=True)
+                    with tabs[5]:
+                        st.image(preprocess_for_display(preproc['final']), caption="최종", use_container_width=True)
+                        if preproc['deskew_angle'] != 0:
+                            st.write(f"**기울기 보정:** {preproc['deskew_angle']:.2f}도")
             
             if st.button("저장"):
                 with Session(engine) as session:
