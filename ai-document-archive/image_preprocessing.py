@@ -136,7 +136,7 @@ def enhance_text_regions(image, kernel_size=(2, 2)):
 
 def deskew_image(image):
     """
-    기울어진 문서 자동 보정
+    기울어진 문서 자동 보정 (Hough Line Transform 사용)
 
     Args:
         image: numpy array (grayscale or binary)
@@ -151,17 +151,43 @@ def deskew_image(image):
     else:
         binary = image
 
-    # 좌표 추출
-    coords = np.column_stack(np.where(binary > 0))
+    # 엣지 검출
+    edges = cv2.Canny(binary, 50, 150, apertureSize=3)
 
-    # 최소 영역 사각형 찾기
-    angle = cv2.minAreaRect(coords)[-1]
+    # Hough Line Transform으로 직선 검출
+    lines = cv2.HoughLinesP(
+        edges,
+        rho=1,
+        theta=np.pi / 180,
+        threshold=100,
+        minLineLength=100,
+        maxLineGap=10
+    )
 
-    # 각도 보정 (-45도 ~ 45도 범위로 조정)
-    if angle < -45:
-        angle = -(90 + angle)
-    else:
-        angle = -angle
+    # 직선이 없으면 기울기 없음
+    if lines is None or len(lines) == 0:
+        return image, 0.0
+
+    # 각 직선의 각도 계산
+    angles = []
+    for line in lines:
+        x1, y1, x2, y2 = line[0]
+        # 수평선에 가까운 선만 사용 (텍스트 라인)
+        angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
+        # -45도 ~ 45도 범위의 각도만 사용
+        if abs(angle) < 45:
+            angles.append(angle)
+
+    # 각도가 없으면 기울기 없음
+    if len(angles) == 0:
+        return image, 0.0
+
+    # 중앙값으로 최종 각도 결정 (outlier 제거)
+    angle = np.median(angles)
+
+    # 각도가 너무 작으면 회전하지 않음 (임계값: 0.5도)
+    if abs(angle) < 0.5:
+        return image, 0.0
 
     # 회전 변환 적용
     (h, w) = image.shape[:2]
