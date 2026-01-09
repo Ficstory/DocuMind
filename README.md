@@ -32,7 +32,7 @@
    - 동적 카메라 제조사 목록 및 지역 기반 GPS 검색
 
 #### 2. **이미지 전처리 개선**
-   - ~~minAreaRect 방식~~ → **Hough Line Transform** 기반 기울기 보정
+   - **Hough Line Transform** 기반 기울기 보정
    - 0.5도 미만 기울기는 회전하지 않는 임계값 추가
    - 전처리 전/후 비교를 기본으로 표시 (UI 개선)
 
@@ -476,32 +476,6 @@ python scripts/migrate_db.py
 
 ---
 
-## 🎯 향후 계획
-
-### Phase 1: 즉시 적용 가능 (1-2시간)
-- [x] 기울기 보정 개선 (Hough Line Transform)
-- [ ] 전처리 모드 UI 개선 (라디오 버튼)
-- [ ] 품질 지표 표시
-
-### Phase 2: 품질 평가 시스템 (2-3시간)
-- [ ] 이미지 품질 자동 평가 (`should_apply_preprocessing()`)
-- [ ] 조건부 전처리 시스템
-- [ ] 자동 전처리 모드
-
-### Phase 3: 고급 기능 (3-4시간)
-- [ ] 선택적 전처리 파이프라인
-- [ ] OCR 결과 기반 자동 선택
-- [ ] 전처리 효과 통계 수집
-
-### Phase 4: 선택 사항
-- [ ] 객체 탐지 통합 (YOLO v8)
-- [ ] GPS → 주소 변환 (카카오맵/네이버맵 API)
-- [ ] 키워드 추출 방식 비교 UI
-
-상세 계획: [docs/COMPREHENSIVE_ANALYSIS.md - 구현 우선순위](docs/COMPREHENSIVE_ANALYSIS.md#-구현-우선순위)
-
----
-
 ## 📄 라이선스
 
 이 프로젝트는 교육 및 학습 목적으로 제작되었습니다.
@@ -512,7 +486,6 @@ python scripts/migrate_db.py
 
 - **버전**: 2.1
 - **최종 업데이트**: 2026-01-09
-- **개발**: 14th AI Team
 
 ---
 
