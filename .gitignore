@@ -30,6 +30,9 @@ archive.db
 *.swo
 *~
 
+# Claude Code 설정
+.claude/
+
 # OS 관련
 .DS_Store
 Thumbs.db
