@@ -495,16 +495,19 @@ def process_document(uploaded_file, models, use_preprocessing=False):
     preprocessing_results = None
     if use_preprocessing:
         preprocessing_results = preprocess_image_for_ocr(image, enable_deskew=True)
-        processed_image = preprocess_for_display(preprocessing_results['final'])
+        processed_image_for_ocr = preprocess_for_display(preprocessing_results['final'])
     else:
-        processed_image = image
+        processed_image_for_ocr = image
 
-    # 2. 문서 유형 분류
-    doc_type = classify_document(processed_image, dit_processor, dit_model)
+    # 2. 문서 유형 분류 (항상 원본 RGB 이미지 사용)
+    doc_type = classify_document(image, dit_processor, dit_model)
     print('\n==========')
     print(f'\n[doc_type]\n{doc_type}')
     print(f'\n[photo_metadata]\n{photo_metadata}')
-    content, boxes = extract_text_with_layout(processed_image, ocr)
+
+    # OCR은 전처리된 이미지 사용 (전처리 옵션이 켜져있으면)
+    ocr_image = processed_image_for_ocr if use_preprocessing else image
+    content, boxes = extract_text_with_layout(ocr_image, ocr)
     layoutlm_data = extract_structured_with_layoutlm(image, content, boxes, layout_processor, layout_model, doc_type)
     print('\n==========')
     print(f'\n[layoutlm_data]\n{layoutlm_data}')
@@ -654,14 +657,6 @@ with tab1:
         
         results = st.session_state.doc_results
 
-        st.write("DEBUG use_preprocessing checkbox:", use_preprocessing)
-        st.write("DEBUG is_photo:", results.get("photo_metadata", {}).get("is_photo"))
-        st.write("DEBUG preprocessing_results is None?:", results.get("preprocessing_results") is None)
-
-    # dict면 키도 확인
-        if results.get("preprocessing_results"):
-            st.write("DEBUG preproc keys:", list(results["preprocessing_results"].keys()))
-        
         col1, col2 = st.columns(2)
         with col1:
             st.image(uploaded_file, caption="업로드된 문서", use_container_width=True)
@@ -695,26 +690,24 @@ with tab1:
 
             # 전처리 결과 표시
             if results.get('preprocessing_results'):
-                with st.expander("이미지 전처리 결과 보기"):
-                    preproc = results['preprocessing_results']
-                    st.write("### ✅ 전처리 전/후 비교")
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.image(
-                            preprocess_for_display(preproc['original']),
-                            caption="전처리 전(원본)",
-                            use_container_width=True
-                        )
-                    with c2:
-                        st.image(
-                            preprocess_for_display(preproc['final']),
-                            caption="전처리 후(최종)",
-                            use_container_width=True
-                        )
+                preproc = results['preprocessing_results']
+                st.write("### ✅ 전처리 전/후 비교")
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.image(
+                        preprocess_for_display(preproc['original']),
+                        caption="전처리 전(원본)",
+                        use_container_width=True
+                    )
+                with c2:
+                    st.image(
+                        preprocess_for_display(preproc['final']),
+                        caption="전처리 후(최종)",
+                        use_container_width=True
+                    )
 
-                    # (기존) 단계별 보기
-                    st.write("### 전처리 단계")
-
+                # 단계별 보기 (expander 안에)
+                with st.expander("전처리 단계별 결과 보기"):
                     # 전처리 단계별 이미지
                     tabs = st.tabs(["원본", "그레이스케일", "노이즈 제거", "대비 개선", "이진화", "최종"])
                     with tabs[0]:
