@@ -37,6 +37,20 @@ class Document(SQLModel, table=True):
     image_data: bytes
     embedding: Optional[str] = None  # 벡터를 JSON으로 저장
 
+    # 사진 메타데이터 필드
+    is_photo: Optional[bool] = None  # 사진 여부
+    has_exif: Optional[bool] = None  # EXIF 데이터 존재 여부
+    has_gps: Optional[bool] = None  # GPS 정보 존재 여부
+    camera_make: Optional[str] = None  # 카메라 제조사
+    camera_model: Optional[str] = None  # 카메라 모델
+    photo_datetime: Optional[datetime] = None  # 촬영 일시
+    gps_latitude: Optional[float] = None  # GPS 위도
+    gps_longitude: Optional[float] = None  # GPS 경도
+    gps_altitude: Optional[float] = None  # GPS 고도
+    image_width: Optional[int] = None  # 이미지 너비
+    image_height: Optional[int] = None  # 이미지 높이
+    orientation: Optional[int] = None  # 이미지 방향
+
 # 데이터베이스 초기화
 engine = create_engine("sqlite:///archive.db")
 SQLModel.metadata.create_all(engine)
@@ -720,6 +734,10 @@ with tab1:
             
             if st.button("저장"):
                 with Session(engine) as session:
+                    # 메타데이터 추출
+                    metadata = results.get('photo_metadata', {})
+                    gps_info = metadata.get('gps_info', {}) if metadata else {}
+
                     doc = Document(
                         filename=uploaded_file.name,
                         doc_type=results['doc_type'],
@@ -728,7 +746,20 @@ with tab1:
                         keywords=results['keywords'],
                         structured_data=json.dumps(results['structured_data'], ensure_ascii=False),
                         image_data=results['img_data'],
-                        embedding=json.dumps(results['embedding'])
+                        embedding=json.dumps(results['embedding']),
+                        # 사진 메타데이터 저장
+                        is_photo=metadata.get('is_photo'),
+                        has_exif=metadata.get('has_exif'),
+                        has_gps=metadata.get('has_gps'),
+                        camera_make=metadata.get('camera_make'),
+                        camera_model=metadata.get('camera_model'),
+                        photo_datetime=metadata.get('datetime'),
+                        gps_latitude=gps_info.get('latitude'),
+                        gps_longitude=gps_info.get('longitude'),
+                        gps_altitude=gps_info.get('altitude'),
+                        image_width=metadata.get('width'),
+                        image_height=metadata.get('height'),
+                        orientation=metadata.get('orientation')
                     )
                     session.add(doc)
                     session.commit()
@@ -741,26 +772,102 @@ with tab1:
 with tab2:
     search_query = st.text_input("검색어를 입력하세요 (예: 커피 영수증)")
     search_method = st.radio("검색 방법", ["벡터 유사도 검색", "키워드 검색"])
-    
+
+    # 메타데이터 필터 추가
+    st.subheader("🔍 메타데이터 필터 (선택)")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        filter_photos_only = st.checkbox("사진만 검색")
+        filter_has_gps = st.checkbox("GPS 정보가 있는 사진만")
+
+        # 날짜 범위 필터
+        st.write("**촬영 날짜 범위**")
+        use_date_filter = st.checkbox("날짜 필터 사용")
+        if use_date_filter:
+            date_start = st.date_input("시작 날짜", value=None)
+            date_end = st.date_input("종료 날짜", value=None)
+
+    with col2:
+        # 카메라 제조사 필터
+        with Session(engine) as session:
+            camera_makes = session.exec(
+                select(Document.camera_make).distinct().where(Document.camera_make.isnot(None))
+            ).all()
+
+        if camera_makes:
+            camera_filter = st.selectbox(
+                "카메라 제조사",
+                ["전체"] + list(camera_makes),
+                index=0
+            )
+        else:
+            camera_filter = "전체"
+
+        # GPS 범위 필터 (간단한 버전)
+        st.write("**GPS 좌표 범위**")
+        use_gps_filter = st.checkbox("GPS 범위 필터 사용")
+        if use_gps_filter:
+            lat_min = st.number_input("최소 위도", value=33.0, min_value=-90.0, max_value=90.0, step=0.1)
+            lat_max = st.number_input("최대 위도", value=38.0, min_value=-90.0, max_value=90.0, step=0.1)
+            lon_min = st.number_input("최소 경도", value=126.0, min_value=-180.0, max_value=180.0, step=0.1)
+            lon_max = st.number_input("최대 경도", value=130.0, min_value=-180.0, max_value=180.0, step=0.1)
+
     if st.button("검색", key='search_button'):
         with Session(engine) as session:
             if search_method == "벡터 유사도 검색":
                 results = search_by_similarity(
-                    search_query, 
+                    search_query,
                     models[9],  # embedding_model
                     session
                 )
             else:
                 # 키워드 검색
                 statement = select(Document).where(
-                    Document.keywords.contains(search_query) | 
+                    Document.keywords.contains(search_query) |
                     Document.summary.contains(search_query) |
                     Document.doc_type.contains(search_query)
                 )
                 results = session.exec(statement).all()
-            
+
+            # 메타데이터 필터 적용
             if results:
-                print_result_list(results)
+                filtered_results = []
+                for doc in results:
+                    # 사진만 필터
+                    if filter_photos_only and not doc.is_photo:
+                        continue
+
+                    # GPS 필터
+                    if filter_has_gps and not doc.has_gps:
+                        continue
+
+                    # 날짜 필터
+                    if use_date_filter and doc.photo_datetime:
+                        doc_date = doc.photo_datetime.date()
+                        if date_start and doc_date < date_start:
+                            continue
+                        if date_end and doc_date > date_end:
+                            continue
+
+                    # 카메라 제조사 필터
+                    if camera_filter != "전체" and doc.camera_make != camera_filter:
+                        continue
+
+                    # GPS 범위 필터
+                    if use_gps_filter and doc.has_gps:
+                        if not (lat_min <= doc.gps_latitude <= lat_max and
+                                lon_min <= doc.gps_longitude <= lon_max):
+                            continue
+
+                    filtered_results.append(doc)
+
+                if filtered_results:
+                    st.success(f"총 {len(filtered_results)}개의 문서를 찾았습니다.")
+                    print_result_list(filtered_results)
+                else:
+                    st.info("필터 조건에 맞는 검색 결과가 없습니다.")
             else:
                 st.info("검색 결과가 없습니다.")
 
